@@ -1,41 +1,93 @@
-import { verifySession } from "@/lib/dal";
 import { NextRequest, NextResponse } from "next/server";
-import connectDB from "@/lib/db";
-import Project from "@/models/Project";
 import mongoose from "mongoose";
+import connectDB from "@/lib/db";
+import { verifySession } from "@/lib/dal";
+import Project from "@/models/Project";
 
-export async function DELETE(
-  _req: NextRequest,
+export const runtime = "nodejs";
+
+export async function PUT(
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const session = await verifySession();
+
+    await connectDB();
+
     const { id } = await params;
 
-    if (!id) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return NextResponse.json(
-        { error: "Project ID is required" },
-        { status: 400 },
+        {
+          success: false,
+          error: "Invalid project id",
+        },
+        {
+          status: 400,
+        },
       );
     }
 
-    const session = await verifySession();
-    await connectDB();
+    const body = await request.json();
 
-    const result = await Project.deleteOne({
-      _id: new mongoose.Types.ObjectId(id),
-      creator: new mongoose.Types.ObjectId(session.userId),
-    });
+    const project = await Project.findById(id);
 
-    if (result.deletedCount === 0) {
-      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    if (!project) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Project not found",
+        },
+        {
+          status: 404,
+        },
+      );
     }
 
-    return NextResponse.json({ success: true }, { status: 200 });
+    if (project.creator.toString() !== session.userId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unauthorized",
+        },
+        {
+          status: 403,
+        },
+      );
+    }
+
+    if (body.name !== undefined) {
+      project.name = body.name;
+    }
+
+    if (body.description !== undefined) {
+      project.description = body.description;
+    }
+
+    if (body.code !== undefined) {
+      project.code = body.code;
+    }
+
+    project.updatedAt = new Date();
+
+    await project.save();
+
+    return NextResponse.json({
+      success: true,
+      project,
+    });
   } catch (error) {
-    console.error("Delete project error:", error);
+    console.error(error);
+
     return NextResponse.json(
-      { error: "Failed to delete project" },
-      { status: 500 },
+      {
+        success: false,
+        error: "Failed to update project",
+      },
+      {
+        status: 500,
+      },
     );
   }
 }
